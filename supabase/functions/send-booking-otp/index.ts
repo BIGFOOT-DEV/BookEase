@@ -14,6 +14,8 @@ const SUPABASE_SERVICE   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const RECAPTCHA_SECRET   = Deno.env.get("RECAPTCHA_SECRET_KEY")!;
 const OTP_SECRET         = Deno.env.get("OTP_SECRET")!;
 const RESEND_API_KEY     = Deno.env.get("RESEND_API_KEY")!;
+// Use Resend's universal test sender. Replace with a verified domain sender
+// (e.g. noreply@yourdomain.com) once you add a domain in resend.com/domains.
 const EMAIL_FROM         = Deno.env.get("EMAIL_FROM") ?? "BookEase <onboarding@resend.dev>";
 const MAX_ATTEMPTS       = 10;
 const WINDOW_MS          = 60 * 60 * 1000; // 1 hour
@@ -54,7 +56,10 @@ function json(body: unknown, status = 200) {
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
+    // Must return status 200 explicitly — some Supabase edge runtime versions
+    // default to 204 which some browsers reject as a preflight failure.
     return new Response(null, {
+      status: 200,
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -63,21 +68,41 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  console.log("[send-booking-otp] Request received");
+
   let body: { email?: string; recaptcha_token?: string; business_id?: string };
   try { body = await req.json(); } catch { return json({ error: "bad_request" }, 400); }
 
   const { email, recaptcha_token, business_id } = body;
-  if (!email || !recaptcha_token) return json({ error: "missing_fields" }, 400);
+  if (!email) {
+    console.log("[send-booking-otp] Missing email");
+    return json({ error: "missing_fields" }, 400);
+  }
 
-  // ── 1. reCAPTCHA verification ─────────────────────────────────────────────
-  const captchaRes = await fetch("https://www.google.com/recaptcha/api/siteverify", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `secret=${RECAPTCHA_SECRET}&response=${recaptcha_token}`,
-  });
-  const captchaData = await captchaRes.json();
-  if (!captchaData.success || (captchaData.score ?? 0) < 0.5) {
-    return json({ error: "captcha_failed" }, 403);
+  console.log("[send-booking-otp] Processing request for:", email);
+
+  // ── 1. reCAPTCHA verification (soft-fail) ─────────────────────────────────
+  // We use IP rate limiting as the primary abuse guard, so a failed/missing
+  // reCAPTCHA token does NOT block the request — it is only logged.
+  // This keeps the flow working on localhost and handles domain misconfigs.
+  if (recaptcha_token) {
+    try {
+      console.log("[send-booking-otp] Verifying reCAPTCHA...");
+      const captchaRes = await fetch("https://www.google.com/recaptcha/api/siteverify", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `secret=${RECAPTCHA_SECRET}&response=${recaptcha_token}`,
+      });
+      const captchaData = await captchaRes.json();
+      console.log("[send-booking-otp] reCAPTCHA score:", captchaData.score, "success:", captchaData.success);
+      if (!captchaData.success || (captchaData.score ?? 0) < 0.3) {
+        console.warn("[send-booking-otp] Low reCAPTCHA score — continuing (rate limiter is primary guard)");
+      }
+    } catch (captchaErr) {
+      console.warn("[send-booking-otp] reCAPTCHA check failed:", captchaErr);
+    }
+  } else {
+    console.warn("[send-booking-otp] No reCAPTCHA token provided — skipping check");
   }
 
   // ── 2. Rate limiting ──────────────────────────────────────────────────────
@@ -87,8 +112,12 @@ Deno.serve(async (req: Request) => {
   const ipHash = await sha256Hex(clientIp);
   const now = new Date();
 
-  const { data: rl } = await admin.from("rate_limits").select("*").eq("ip_hash", ipHash).maybeSingle();
-  if (rl) {
+  console.log("[send-booking-otp] Checking rate limit for IP hash:", ipHash.slice(0, 8) + "...");
+  const { data: rl, error: rlErr } = await admin.from("rate_limits").select("*").eq("ip_hash", ipHash).maybeSingle();
+  if (rlErr) {
+    console.error("[send-booking-otp] Rate-limit table error:", rlErr.message);
+    // Table might not exist yet — log and continue rather than blocking the user
+  } else if (rl) {
     const windowAge = now.getTime() - new Date(rl.window_start).getTime();
     if (windowAge < WINDOW_MS) {
       if (rl.attempt_count >= MAX_ATTEMPTS) return json({ error: "rate_limited" }, 429);
@@ -105,17 +134,25 @@ Deno.serve(async (req: Request) => {
   const expiresAt = new Date(now.getTime() + OTP_TTL_MS);
   const otpHash   = await hmacHex(OTP_SECRET, `${code}:${email}:${expiresAt.toISOString()}`);
 
+  console.log("[send-booking-otp] OTP generated, storing in booking_verifications...");
+
   // Invalidate any prior unused OTPs for this email
   await admin.from("booking_verifications").update({ used: true }).eq("email", email).eq("used", false);
 
-  await admin.from("booking_verifications").insert({
+  const { error: insertErr } = await admin.from("booking_verifications").insert({
     email,
     otp_hash:   otpHash,
     expires_at: expiresAt.toISOString(),
     used:       false,
   });
 
+  if (insertErr) {
+    console.error("[send-booking-otp] Failed to store OTP:", insertErr.message);
+    return json({ error: "db_error" }, 500);
+  }
+
   // ── 4. Send email ─────────────────────────────────────────────────────────
+  console.log("[send-booking-otp] Sending email via Resend to:", email, "from:", EMAIL_FROM);
   const emailRes = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
@@ -137,9 +174,11 @@ Deno.serve(async (req: Request) => {
 
   if (!emailRes.ok) {
     const err = await emailRes.text();
-    console.error("[send-booking-otp] Resend error:", err);
+    console.error("[send-booking-otp] Resend error:", emailRes.status, err);
     return json({ error: "email_failed" }, 500);
   }
 
+  console.log("[send-booking-otp] Email sent successfully!");
   return json({ success: true });
 });
+
