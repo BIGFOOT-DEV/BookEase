@@ -231,14 +231,27 @@ export default function BookingFlow() {
     }
     setOtpSending(true); setOtpError('')
     try {
-      const token = await executeRecaptcha('book_appointment')
+      // executeRecaptcha now has a try/catch inside ready() and a 10s timeout,
+      // so it will always resolve or reject — never hang forever.
+      let token = ''
+      try {
+        token = await executeRecaptcha('book_appointment')
+      } catch (captchaErr) {
+        // reCAPTCHA failed or timed out — still attempt the function call
+        // with an empty token; the server will return captcha_failed and
+        // show a clear error. This prevents infinite spinning.
+        console.warn('[BookEase] reCAPTCHA issue:', captchaErr.message)
+        token = ''
+      }
+
       const { data, error } = await supabase.functions.invoke('send-booking-otp', {
         body: { email: form.customer_email, recaptcha_token: token, business_id: business.id },
       })
       if (error || data?.error) {
         const code = data?.error || 'unknown'
         if (code === 'rate_limited') setOtpError('Too many attempts. Please wait an hour and try again.')
-        else if (code === 'captcha_failed') setOtpError('reCAPTCHA check failed. Please refresh and try again.')
+        else if (code === 'captcha_failed') setOtpError('Security check failed. Please refresh the page and try again.')
+        else if (code === 'missing_fields') setOtpError('Please fill in your name and email before continuing.')
         else setOtpError('Could not send verification code. Please try again.')
         return
       }
@@ -246,7 +259,8 @@ export default function BookingFlow() {
       startOtpCountdown()
       setStep(4)
     } catch (err) {
-      setOtpError('Something went wrong: ' + err.message)
+      setOtpError('Something went wrong. Please refresh and try again.')
+      console.error('[BookEase] handleSendOtp error:', err)
     } finally {
       setOtpSending(false)
     }
