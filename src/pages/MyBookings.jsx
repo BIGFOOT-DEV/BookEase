@@ -16,8 +16,22 @@ export default function MyBookings() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (user?.id) loadBookings()
+    if (user?.id) {
+      markMissedBookings().then(() => loadBookings())
+    }
   }, [user, filter])
+
+  /**
+   * Mark any of the customer's past pending/confirmed bookings as 'missed'.
+   */
+  async function markMissedBookings() {
+    await supabase
+      .from('appointments')
+      .update({ status: 'missed' })
+      .eq('customer_id', user.id)
+      .in('status', ['pending', 'confirmed'])
+      .lt('end_time', new Date().toISOString())
+  }
 
   async function loadBookings() {
     setLoading(true)
@@ -47,7 +61,7 @@ export default function MyBookings() {
   }
 
   const statusBadge = (status) => {
-    const map = { pending: 'warning', confirmed: 'success', cancelled: 'error' }
+    const map = { pending: 'warning', confirmed: 'success', cancelled: 'error', missed: 'neutral' }
     return <Badge variant={map[status] || 'neutral'}>{status}</Badge>
   }
 

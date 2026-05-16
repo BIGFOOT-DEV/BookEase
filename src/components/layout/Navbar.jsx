@@ -4,6 +4,31 @@ import { useAuth } from '../../context/AuthContext'
 import { signOut } from '../../lib/auth'
 import Button from '../ui/Button'
 
+// ── Reusable avatar circle ────────────────────────────────────────────────────
+function AvatarCircle({ profile, size = 'sm', className = '' }) {
+  const sz = size === 'sm' ? 'w-8 h-8 text-sm' : 'w-10 h-10 text-sm'
+  const settingsPath = profile?.role === 'business' ? '/dashboard/settings' : '/my-bookings/settings'
+  return (
+    <Link
+      to={settingsPath}
+      title="View profile"
+      className={`${sz} rounded-full overflow-hidden flex items-center justify-center shrink-0 cursor-pointer ring-2 ring-transparent hover:ring-primary-300 transition-all ${className}`}
+    >
+      {profile?.avatar_url ? (
+        <img
+          src={profile.avatar_url}
+          alt={profile.full_name || 'Profile'}
+          className="w-full h-full object-cover"
+        />
+      ) : (
+        <span className={`w-full h-full rounded-full bg-primary-100 flex items-center justify-center font-semibold text-primary-600`}>
+          {profile?.full_name?.[0]?.toUpperCase() || 'U'}
+        </span>
+      )}
+    </Link>
+  )
+}
+
 export default function Navbar() {
   const { user, profile, isAuthenticated, isBusiness } = useAuth()
   const navigate = useNavigate()
@@ -53,11 +78,7 @@ export default function Navbar() {
                     {isBusiness ? 'Dashboard' : 'My Bookings'}
                   </Link>
                   <div className="flex items-center gap-3 pl-3 border-l border-neutral-200">
-                    <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center">
-                      <span className="text-sm font-semibold text-primary-600">
-                        {profile?.full_name?.[0]?.toUpperCase() || 'U'}
-                      </span>
-                    </div>
+                    <AvatarCircle profile={profile} size="sm" />
                     <button
                       type="button"
                       onClick={handleSignOut}
@@ -137,11 +158,7 @@ export default function Navbar() {
             <>
               {/* User info */}
               <div className="flex items-center gap-3 px-3 py-3 mb-3 bg-primary-50 rounded-2xl">
-                <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center shrink-0">
-                  <span className="text-sm font-semibold text-primary-600">
-                    {profile?.full_name?.[0]?.toUpperCase() || 'U'}
-                  </span>
-                </div>
+                <AvatarCircle profile={profile} size="lg" />
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-neutral-800 truncate">{profile?.full_name || 'User'}</p>
                   <p className="text-xs text-neutral-400 truncate">{user?.email}</p>

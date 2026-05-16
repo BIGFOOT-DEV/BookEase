@@ -4,10 +4,38 @@ import { getProfile } from '../lib/auth'
 
 const AuthContext = createContext(null)
 
+// ── Role cache ────────────────────────────────────────────────────────────────
+// Persists the user's role to localStorage so the correct dashboard layout is
+// rendered immediately on page load/return — before the async profile fetch
+// resolves. Without this, business users briefly see the customer dashboard.
+const ROLE_CACHE_KEY = 'bookease_role_cache'
+
+function readRoleCache() {
+  try {
+    const raw = localStorage.getItem(ROLE_CACHE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+}
+
+function writeRoleCache(profile) {
+  if (!profile) return
+  try {
+    localStorage.setItem(ROLE_CACHE_KEY, JSON.stringify({ role: profile.role, id: profile.id }))
+  } catch { /* ignore */ }
+}
+
+function clearRoleCache() {
+  try { localStorage.removeItem(ROLE_CACHE_KEY) } catch { /* ignore */ }
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
+
+  // Read cached role immediately so route guards don't flash the wrong layout
+  const cachedRole = readRoleCache()
+  const [cachedIsBusiness] = useState(cachedRole?.role === 'business')
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -15,6 +43,8 @@ export function AuthProvider({ children }) {
       if (session?.user) {
         loadProfile(session.user.id)
       } else {
+        // No session — clear stale cache
+        clearRoleCache()
         setLoading(false)
       }
     })
@@ -26,6 +56,7 @@ export function AuthProvider({ children }) {
           if (event === 'SIGNED_IN') setLoading(true)
           await loadProfile(session.user.id)
         } else {
+          clearRoleCache()
           setProfile(null)
           setLoading(false)
         }
@@ -42,6 +73,7 @@ export function AuthProvider({ children }) {
       )
       const { data } = await Promise.race([getProfile(userId), timeout])
       setProfile(data)
+      writeRoleCache(data)
     } catch (e) {
       setProfile(null)
     }
@@ -54,6 +86,7 @@ export function AuthProvider({ children }) {
       try {
         const { data } = await getProfile(uid)
         setProfile(data)
+        writeRoleCache(data)
         return data
       } catch (e) {
         return null
@@ -62,14 +95,17 @@ export function AuthProvider({ children }) {
     return null
   }
 
+  // Use the real profile role once loaded; fall back to cache while loading
+  const resolvedRole = profile?.role ?? (loading ? cachedRole?.role : null)
+
   const value = {
     user,
     profile,
     loading,
     refreshProfile,
     isAuthenticated: !!user,
-    isBusiness: profile?.role === 'business',
-    isCustomer: profile?.role === 'customer',
+    isBusiness: resolvedRole === 'business',
+    isCustomer: resolvedRole === 'customer',
     hasProfile: !!profile,
   }
 

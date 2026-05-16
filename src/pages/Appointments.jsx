@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { decryptAppointments } from '../lib/crypto'
 import PageWrapper from '../components/layout/PageWrapper'
 import Card from '../components/ui/Card'
 import Badge from '../components/ui/Badge'
@@ -14,8 +15,23 @@ export default function Appointments() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (profile?.id) loadAppointments()
+    if (profile?.id) {
+      markMissedAppointments().then(() => loadAppointments())
+    }
   }, [profile, filter])
+
+  /**
+   * Mark any past pending/confirmed appointments as 'missed'.
+   * Runs once per filter change before fetching the list.
+   */
+  async function markMissedAppointments() {
+    await supabase
+      .from('appointments')
+      .update({ status: 'missed' })
+      .eq('business_id', profile.id)
+      .in('status', ['pending', 'confirmed'])
+      .lt('end_time', new Date().toISOString())
+  }
 
   async function loadAppointments() {
     setLoading(true)
@@ -34,7 +50,9 @@ export default function Appointments() {
     }
 
     const { data } = await query.limit(50)
-    setAppointments(data || [])
+    // Decrypt AES-256-GCM encrypted phone numbers before rendering
+    const decrypted = await decryptAppointments(data || [])
+    setAppointments(decrypted)
     setLoading(false)
   }
 
@@ -44,7 +62,7 @@ export default function Appointments() {
   }
 
   const statusBadge = (status) => {
-    const map = { pending: 'warning', confirmed: 'success', cancelled: 'error' }
+    const map = { pending: 'warning', confirmed: 'success', cancelled: 'error', missed: 'neutral' }
     return <Badge variant={map[status] || 'neutral'}>{status}</Badge>
   }
 
@@ -91,55 +109,59 @@ export default function Appointments() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {appointments.map((apt) => (
-            <Card key={apt.id}>
-              <div className="flex items-center justify-between flex-wrap gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-11 h-11 bg-primary-100 rounded-full flex items-center justify-center text-primary-600 font-semibold">
-                    {apt.customer_name?.[0]?.toUpperCase() || '?'}
+          {appointments.map((apt) => {
+            const isPast = new Date(apt.end_time) < new Date()
+
+            return (
+              <Card key={apt.id}>
+                <div className="flex items-center justify-between flex-wrap gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className="w-11 h-11 bg-primary-100 rounded-full flex items-center justify-center text-primary-600 font-semibold">
+                      {apt.customer_name?.[0]?.toUpperCase() || '?'}
+                    </div>
+                    <div>
+                      <p className="font-medium text-neutral-800">{apt.customer_name}</p>
+                      <p className="text-sm text-neutral-500">{apt.customer_email}</p>
+                      {apt.customer_phone && (
+                        <p className="text-sm text-neutral-400">📞 {apt.customer_phone}</p>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-medium text-neutral-800">{apt.customer_name}</p>
-                    <p className="text-sm text-neutral-500">{apt.customer_email}</p>
-                    {apt.customer_phone && (
-                      <p className="text-sm text-neutral-400">📞 {apt.customer_phone}</p>
+
+                  <div className="text-sm">
+                    <p className="font-medium text-neutral-700">{apt.services?.name}</p>
+                    <p className="text-neutral-500">
+                      {formatDate(apt.start_time)} · {formatTime(new Date(apt.start_time))} – {formatTime(new Date(apt.end_time))}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    {statusBadge(apt.status)}
+                    {apt.status === 'pending' && !isPast && (
+                      <div className="flex gap-1.5">
+                        <Button size="sm" variant="primary" onClick={() => updateStatus(apt.id, 'confirmed')}>
+                          Confirm
+                        </Button>
+                        <Button size="sm" variant="danger" onClick={() => updateStatus(apt.id, 'cancelled')}>
+                          Cancel
+                        </Button>
+                      </div>
                     )}
-                  </div>
-                </div>
-
-                <div className="text-sm">
-                  <p className="font-medium text-neutral-700">{apt.services?.name}</p>
-                  <p className="text-neutral-500">
-                    {formatDate(apt.start_time)} · {formatTime(new Date(apt.start_time))} – {formatTime(new Date(apt.end_time))}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  {statusBadge(apt.status)}
-                  {apt.status === 'pending' && (
-                    <div className="flex gap-1.5">
-                      <Button size="sm" variant="primary" onClick={() => updateStatus(apt.id, 'confirmed')}>
-                        Confirm
-                      </Button>
+                    {apt.status === 'confirmed' && !isPast && (
                       <Button size="sm" variant="danger" onClick={() => updateStatus(apt.id, 'cancelled')}>
                         Cancel
                       </Button>
-                    </div>
-                  )}
-                  {apt.status === 'confirmed' && (
-                    <Button size="sm" variant="danger" onClick={() => updateStatus(apt.id, 'cancelled')}>
-                      Cancel
-                    </Button>
-                  )}
+                    )}
+                  </div>
                 </div>
-              </div>
-              {apt.notes && (
-                <p className="text-sm text-neutral-500 mt-3 pt-3 border-t border-neutral-100">
-                  <span className="font-medium text-neutral-600">Note:</span> {apt.notes}
-                </p>
-              )}
-            </Card>
-          ))}
+                {apt.notes && (
+                  <p className="text-sm text-neutral-500 mt-3 pt-3 border-t border-neutral-100">
+                    <span className="font-medium text-neutral-600">Note:</span> {apt.notes}
+                  </p>
+                )}
+              </Card>
+            )
+          })}
         </div>
       )}
     </PageWrapper>

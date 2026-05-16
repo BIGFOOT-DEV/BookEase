@@ -3,8 +3,10 @@ import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { upsertProfile } from '../lib/auth'
 import { useAuth } from '../context/AuthContext'
+import { checkPasswordStrength } from '../lib/passwordStrength'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
+import PasswordStrengthMeter from '../components/ui/PasswordStrengthMeter'
 
 // ── Logo ────────────────────────────────────────────────────────────────────
 
@@ -159,6 +161,11 @@ export default function Register() {
     }
     if (password.length < 8) {
       setError('Password must be at least 8 characters')
+      return
+    }
+    const strength = checkPasswordStrength(password)
+    if (!strength.isStrong) {
+      setError('Password is too weak. Please meet all the requirements shown below.')
       return
     }
 
@@ -422,6 +429,7 @@ export default function Register() {
                 onChange={(e) => setPhone(e.target.value)} placeholder="1234567890" />
               <Input id="register-password" label="Password" type="password" value={password}
                 onChange={(e) => setPassword(e.target.value)} placeholder="Min. 8 characters" required />
+              <PasswordStrengthMeter password={password} />
 
               {role === 'business' && (
                 <Input id="register-slug" label="Business URL slug" value={businessSlug}

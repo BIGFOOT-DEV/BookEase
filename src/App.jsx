@@ -22,6 +22,8 @@ import BookingPage from './pages/BookingPage'
 import BookingFlow from './pages/BookingFlow'
 import MyBookings from './pages/MyBookings'
 import CustomerSettings from './pages/CustomerSettings'
+import NotificationSettings from './pages/NotificationSettings'
+import RatePage from './pages/RatePage'
 
 /**
  * Layout wrapper for business dashboard pages (with sidebar)
@@ -109,17 +111,20 @@ export default function App() {
         <Route path="/dashboard/availability" element={<Availability />} />
         <Route path="/dashboard/appointments" element={<Appointments />} />
         <Route path="/dashboard/settings" element={<Settings />} />
+        <Route path="/dashboard/notifications" element={<NotificationSettings />} />
       </Route>
 
       {/* Customer dashboard (protected, customer only) */}
       <Route element={<CustomerLayout />}>
         <Route path="/my-bookings" element={<MyBookings />} />
         <Route path="/my-bookings/settings" element={<CustomerSettings />} />
+        <Route path="/my-bookings/notifications" element={<NotificationSettings />} />
       </Route>
 
       {/* Public booking routes (/:slug) */}
       <Route path="/:slug" element={<BookingPage />} />
       <Route path="/:slug/book" element={<BookingFlow />} />
+      <Route path="/rate/:appointmentId" element={<RatePage />} />
     </Routes>
   )
 }

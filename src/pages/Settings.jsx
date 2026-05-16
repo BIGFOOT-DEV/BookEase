@@ -2,11 +2,20 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { upsertProfile } from '../lib/auth'
+import { checkPasswordStrength } from '../lib/passwordStrength'
 import PageWrapper from '../components/layout/PageWrapper'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
 import AvatarUpload from '../components/ui/AvatarUpload'
+import PasswordStrengthMeter from '../components/ui/PasswordStrengthMeter'
+
+// ── Booking Rules helpers ───────────────────────────────────────────────────
+const DEFAULT_RULES = {
+  min_advance_hours: 0,
+  max_advance_days: 60,
+  max_bookings_per_day: '',
+}
 
 export default function Settings() {
   const { profile, user, refreshProfile } = useAuth()
@@ -26,6 +35,11 @@ export default function Settings() {
   const [pwSaving, setPwSaving] = useState(false)
   const [pwMsg, setPwMsg] = useState(null)
 
+  // Booking rules state (business only)
+  const [rules, setRules] = useState(DEFAULT_RULES)
+  const [rulesSaving, setRulesSaving] = useState(false)
+  const [rulesMsg, setRulesMsg] = useState(null)
+
   useEffect(() => {
     if (profile) {
       setForm({
@@ -36,6 +50,24 @@ export default function Settings() {
         business_name: profile.business_name || '',
         bio: profile.bio || '',
       })
+
+      // Load booking rules for business accounts
+      if (profile.role === 'business') {
+        supabase
+          .from('business_settings')
+          .select('min_advance_hours,max_advance_days,max_bookings_per_day')
+          .eq('business_id', profile.id)
+          .maybeSingle()
+          .then(({ data }) => {
+            if (data) {
+              setRules({
+                min_advance_hours: data.min_advance_hours ?? 0,
+                max_advance_days: data.max_advance_days ?? 60,
+                max_bookings_per_day: data.max_bookings_per_day ?? '',
+              })
+            }
+          })
+      }
     }
   }, [profile])
 
@@ -105,6 +137,11 @@ export default function Settings() {
       setPwMsg({ type: 'error', text: 'New password must be at least 8 characters.' })
       return
     }
+    const strength = checkPasswordStrength(pwForm.next)
+    if (!strength.isStrong) {
+      setPwMsg({ type: 'error', text: 'New password is too weak. Please meet all requirements shown below.' })
+      return
+    }
 
     setPwSaving(true)
 
@@ -133,6 +170,47 @@ export default function Settings() {
     }
 
     setPwSaving(false)
+  }
+
+  async function handleSaveRules(e) {
+    e.preventDefault()
+    setRulesMsg(null)
+
+    const minH = parseInt(rules.min_advance_hours, 10)
+    const maxD = parseInt(rules.max_advance_days, 10)
+    const maxB = rules.max_bookings_per_day === '' ? null : parseInt(rules.max_bookings_per_day, 10)
+
+    if (isNaN(minH) || minH < 0) {
+      setRulesMsg({ type: 'error', text: 'Minimum advance notice must be 0 or more hours.' }); return
+    }
+    if (isNaN(maxD) || maxD < 1) {
+      setRulesMsg({ type: 'error', text: 'Maximum advance days must be at least 1.' }); return
+    }
+    if (maxB !== null && (isNaN(maxB) || maxB < 1)) {
+      setRulesMsg({ type: 'error', text: 'Max bookings per day must be at least 1 (or leave blank for unlimited).' }); return
+    }
+
+    setRulesSaving(true)
+    const { error } = await supabase
+      .from('business_settings')
+      .upsert(
+        {
+          business_id: profile.id,
+          min_advance_hours: minH,
+          max_advance_days: maxD,
+          max_bookings_per_day: maxB,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'business_id' }
+      )
+
+    if (error) {
+      setRulesMsg({ type: 'error', text: error.message })
+    } else {
+      setRulesMsg({ type: 'success', text: 'Booking rules saved.' })
+      setTimeout(() => setRulesMsg(null), 3000)
+    }
+    setRulesSaving(false)
   }
 
   return (
@@ -259,6 +337,127 @@ export default function Settings() {
           </form>
         </Card>
 
+        {/* Booking Rules — business only */}
+        {profile?.role === 'business' && (
+          <Card>
+            <div className="flex items-start justify-between mb-1">
+              <div>
+                <h2 className="text-base font-semibold text-neutral-800">Booking Rules</h2>
+                <p className="text-sm text-neutral-500 mt-0.5">
+                  Control when customers can book and how many slots are available per day.
+                </p>
+              </div>
+              {/* shield icon */}
+              <div className="w-9 h-9 bg-primary-50 rounded-xl flex items-center justify-center flex-shrink-0 ml-3">
+                <svg className="w-5 h-5 text-primary-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveRules} className="space-y-5 mt-5">
+              {/* Minimum advance notice */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1.5">
+                  Minimum advance notice
+                  <span className="text-neutral-400 font-normal ml-1">(hours)</span>
+                </label>
+                <div className="relative">
+                  <input
+                    id="rules-min-advance"
+                    type="number"
+                    min="0"
+                    max="8760"
+                    value={rules.min_advance_hours}
+                    onChange={(e) => setRules({ ...rules, min_advance_hours: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-white border border-neutral-200 rounded-xl text-neutral-800
+                      placeholder-neutral-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-all"
+                    placeholder="0"
+                  />
+                </div>
+                <p className="text-xs text-neutral-400 mt-1.5">
+                  Customers cannot book slots starting within this many hours from now.
+                  Set to <strong>0</strong> to allow same-day bookings.
+                </p>
+              </div>
+
+              {/* Maximum advance days */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1.5">
+                  Maximum advance booking
+                  <span className="text-neutral-400 font-normal ml-1">(days into the future)</span>
+                </label>
+                <input
+                  id="rules-max-days"
+                  type="number"
+                  min="1"
+                  max="365"
+                  value={rules.max_advance_days}
+                  onChange={(e) => setRules({ ...rules, max_advance_days: e.target.value })}
+                  className="w-full px-4 py-2.5 bg-white border border-neutral-200 rounded-xl text-neutral-800
+                    placeholder-neutral-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-all"
+                  placeholder="60"
+                />
+                <p className="text-xs text-neutral-400 mt-1.5">
+                  Customers can only book up to this many days ahead. Default is 60.
+                </p>
+              </div>
+
+              {/* Max bookings per day */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1.5">
+                  Max bookings per day
+                  <span className="text-neutral-400 font-normal ml-1">(leave blank for unlimited)</span>
+                </label>
+                <input
+                  id="rules-max-per-day"
+                  type="number"
+                  min="1"
+                  max="999"
+                  value={rules.max_bookings_per_day}
+                  onChange={(e) => setRules({ ...rules, max_bookings_per_day: e.target.value })}
+                  className="w-full px-4 py-2.5 bg-white border border-neutral-200 rounded-xl text-neutral-800
+                    placeholder-neutral-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-all"
+                  placeholder="Unlimited"
+                />
+                <p className="text-xs text-neutral-400 mt-1.5">
+                  Once this limit is reached for a day, that date is hidden from the booking calendar.
+                </p>
+              </div>
+
+              {/* Capacity summary chip */}
+              <div className="bg-neutral-50 border border-neutral-100 rounded-xl px-4 py-3 flex items-center gap-3">
+                <svg className="w-4 h-4 text-neutral-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-xs text-neutral-500">
+                  Customers must book at least <strong>{rules.min_advance_hours || 0}h</strong> in
+                  advance, up to <strong>{rules.max_advance_days || 60} days</strong> ahead
+                  {rules.max_bookings_per_day
+                    ? <>, with a cap of <strong>{rules.max_bookings_per_day} bookings/day</strong>.</>  
+                    : <> with no daily cap.</>}
+                </p>
+              </div>
+
+              {rulesMsg && (
+                <div className={`text-sm rounded-xl px-4 py-3 ${
+                  rulesMsg.type === 'error'
+                    ? 'bg-red-50 border border-red-200 text-red-600'
+                    : 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+                }`}>
+                  {rulesMsg.text}
+                </div>
+              )}
+
+              <Button type="submit" variant="primary" loading={rulesSaving}>
+                Save Booking Rules
+              </Button>
+            </form>
+          </Card>
+        )}
+
         {/* Change password */}
         <Card>
           <h2 className="text-base font-semibold text-neutral-800 mb-1">Change Password</h2>
@@ -284,6 +483,7 @@ export default function Settings() {
               placeholder="Min. 8 characters"
               required
             />
+            <PasswordStrengthMeter password={pwForm.next} />
             <Input
               id="settings-pw-confirm"
               label="Confirm New Password"
