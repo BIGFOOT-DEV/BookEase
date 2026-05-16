@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -266,7 +266,22 @@ export default function BookingFlow() {
         return
       }
 
-      if (result?.appointment_id) setBookedAppointmentId(result.appointment_id)
+      const newAppointmentId = result?.appointment_id
+      if (newAppointmentId) {
+        setBookedAppointmentId(newAppointmentId)
+
+        // Fire-and-forget: call send-notification directly so the
+        // confirmation email goes out immediately without needing a
+        // DB webhook to be configured on the Supabase dashboard.
+        supabase.functions
+          .invoke('send-notification', {
+            body: { type: 'booking_created', appointment_id: newAppointmentId },
+          })
+          .then(({ error }) => {
+            if (error) console.warn('[BookEase] send-notification:', error.message)
+          })
+          .catch((err) => console.warn('[BookEase] send-notification fetch:', err))
+      }
       setStep(4)
     } catch (err) {
       setSubmitError('Something went wrong: ' + err.message)
@@ -489,8 +504,9 @@ export default function BookingFlow() {
               </div>
               <h2 className="text-2xl font-bold text-neutral-800 mb-2">Booking Confirmed! 🎉</h2>
               <p className="text-neutral-500 mb-6">
-                Your appointment with {business.full_name} has been submitted.
-                A confirmation email with a calendar invite has been sent to {form.customer_email}.
+                Your appointment with <strong>{business.full_name}</strong> has been submitted
+                and the business will be in touch to confirm. Download the calendar invite below
+                so you don't forget.
               </p>
 
               <div className="bg-neutral-50 rounded-xl p-5 mb-6 text-left max-w-sm mx-auto">
