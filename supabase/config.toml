@@ -36,3 +36,9 @@ verify_jwt = false
 
 [functions.send-daily-digest]
 verify_jwt = false
+
+[functions.send-booking-otp]
+verify_jwt = false
+
+[functions.verify-booking-otp]
+verify_jwt = false
