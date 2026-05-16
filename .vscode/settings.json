@@ -1,0 +1,14 @@
+{
+  // ── Deno (Supabase Edge Functions) ──────────────────────────────────────────
+  // The Deno VS Code extension is NOT required — types are declared locally via
+  // supabase/functions/_types/deno.d.ts and supabase/functions/tsconfig.json.
+  // If you install the Deno extension (denoland.vscode-deno) in the future,
+  // un-comment the three lines below and remove the tsconfig.json approach.
+  // "deno.enable": true,
+  // "deno.enablePaths": ["supabase/functions"],
+  // "deno.config": "supabase/functions/deno.json",
+
+  // ── TypeScript — point the TS server at the functions-specific tsconfig ─────
+  // This ensures Deno globals and URL imports are resolved inside that folder.
+  "typescript.tsdk": "node_modules/typescript/lib"
+}

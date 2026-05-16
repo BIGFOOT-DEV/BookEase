@@ -174,11 +174,10 @@ async function buildVapidHeaders(
   const encPayload = base64url(JSON.stringify(payload))
   const signingInput = `${encHeader}.${encPayload}`
 
-  // Import the private key
-  const privKeyBytes = base64urlDecode(privateKey)
+  // Import the private key (.slice() ensures Uint8Array<ArrayBuffer> for BufferSource compat)
   const cryptoKey = await crypto.subtle.importKey(
     'raw',
-    privKeyBytes,
+    base64urlDecode(privateKey).slice(),
     { name: 'ECDSA', namedCurve: 'P-256' },
     false,
     ['sign'],

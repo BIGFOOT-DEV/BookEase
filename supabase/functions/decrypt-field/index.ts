@@ -113,8 +113,8 @@ Deno.serve(async (req: Request) => {
   try {
     const [ivB64, ctB64] = value.split(":");
     const key            = await getDerivedKey();
-    const iv             = fromBase64(ivB64);
-    const ciphertext     = fromBase64(ctB64);
+    const iv             = fromBase64(ivB64).slice();  // Uint8Array<ArrayBuffer> ✓
+    const ciphertext     = fromBase64(ctB64).slice();  // Uint8Array<ArrayBuffer> ✓
 
     const plainBuf = await crypto.subtle.decrypt({ name: ALGO, iv }, key, ciphertext);
     const plaintext = new TextDecoder().decode(plainBuf);

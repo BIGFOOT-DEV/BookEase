@@ -1,0 +1,58 @@
+{
+  /**
+   * TypeScript configuration for Supabase Edge Functions.
+   *
+   * This tsconfig is scoped to the supabase/functions/ directory only.
+   * It makes the standard VS Code TypeScript language server aware of:
+   *   1. Deno globals (Deno.env, Deno.serve) via _types/deno.d.ts
+   *   2. URL-based and JSR imports via "paths" remapping to local node_modules
+   *
+   * NOTE: This config is for IDE type-checking only. Supabase Edge Functions
+   * are compiled and executed by the Deno runtime, which uses deno.json instead.
+   */
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "baseUrl": ".",
+    "strict": true,
+    "noImplicitAny": true,
+    "skipLibCheck": true,
+
+    /**
+     * Remap URL-based and JSR imports to local node_modules so the TS server
+     * can resolve types for @supabase/supabase-js and the edge runtime stubs.
+     */
+    "paths": {
+      "https://esm.sh/@supabase/supabase-js@2": [
+        "../../node_modules/@supabase/supabase-js"
+      ],
+      "jsr:@supabase/supabase-js@2": [
+        "../../node_modules/@supabase/supabase-js"
+      ],
+      "jsr:@supabase/functions-js/edge-runtime.d.ts": [
+        "./_types/edge-runtime.d.ts"
+      ]
+    }
+  },
+
+  /**
+   * Include the Deno global declarations first, then all function files.
+   * The _types/deno.d.ts is a global ambient declaration — it must be included
+   * here (not imported) so that `Deno` is available everywhere without imports.
+   */
+  "include": [
+    "_types/deno.d.ts",
+    "_types/edge-runtime.d.ts",
+    "_shared/**/*.ts",
+    "decrypt-field/**/*.ts",
+    "process-notification-queue/**/*.ts",
+    "save-push-subscription/**/*.ts",
+    "send-booking-otp/**/*.ts",
+    "send-daily-digest/**/*.ts",
+    "send-notification/**/*.ts",
+    "setup-reminders/**/*.ts",
+    "verify-booking-otp/**/*.ts"
+  ]
+}
