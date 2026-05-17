@@ -29,9 +29,10 @@ import RatePage from './pages/RatePage'
  * Layout wrapper for business dashboard pages (with sidebar)
  */
 function DashboardLayout() {
-  const { loading, isAuthenticated, isBusiness } = useAuth()
+  const { loading, isAuthenticated, isBusiness, hasProfile } = useAuth()
 
-  if (loading) {
+  // Always wait for both auth AND profile to resolve before making routing decisions
+  if (loading || (isAuthenticated && !hasProfile)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Spinner size="lg" />
@@ -41,7 +42,7 @@ function DashboardLayout() {
 
   if (!isAuthenticated) return <Navigate to="/login" />
 
-  // If profile loaded but user is not a business, redirect
+  // Profile is loaded — now safe to check role
   if (!isBusiness) return <Navigate to="/my-bookings" />
 
   return (
@@ -63,9 +64,10 @@ function DashboardLayout() {
  * Layout wrapper for customer pages (with bottom tab bar on mobile)
  */
 function CustomerLayout() {
-  const { loading, isAuthenticated, isBusiness } = useAuth()
+  const { loading, isAuthenticated, isBusiness, hasProfile } = useAuth()
 
-  if (loading) {
+  // Always wait for both auth AND profile to resolve before making routing decisions
+  if (loading || (isAuthenticated && !hasProfile)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Spinner size="lg" />
@@ -75,7 +77,7 @@ function CustomerLayout() {
 
   if (!isAuthenticated) return <Navigate to="/login" />
 
-  // Business users shouldn't be in customer layout
+  // Profile is loaded — now safe to check role
   if (isBusiness) return <Navigate to="/dashboard" />
 
   return (

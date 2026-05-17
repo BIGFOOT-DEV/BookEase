@@ -75,7 +75,8 @@ export function AuthProvider({ children }) {
       setProfile(data)
       writeRoleCache(data)
     } catch (e) {
-      setProfile(null)
+      // Don't wipe profile on timeout — keeps routing stable
+      console.error('loadProfile error:', e)
     }
     setLoading(false)
   }

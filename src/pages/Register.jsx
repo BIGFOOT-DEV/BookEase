@@ -373,7 +373,7 @@ export default function Register() {
                     </svg>
                   </div>
                   <div>
-                    <h3 className="font-semibold text-neutral-800">I'm a business</h3>
+                    <h3 className="font-semibold text-neutral-800">Service Provider</h3>
                     <p className="text-sm text-neutral-500 mt-0.5">I want to manage services and receive bookings</p>
                   </div>
                 </div>
@@ -390,7 +390,7 @@ export default function Register() {
                     </svg>
                   </div>
                   <div>
-                    <h3 className="font-semibold text-neutral-800">I'm a customer</h3>
+                    <h3 className="font-semibold text-neutral-800">Client</h3>
                     <p className="text-sm text-neutral-500 mt-0.5">I want to book appointments with businesses</p>
                   </div>
                 </div>
